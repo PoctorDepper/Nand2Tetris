@@ -32,5 +32,38 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-	//// Replace this comment with your code.
+	Not(in=instruction[15], out=ain);
+
+	// Write instructions
+	Or(a=ain, b=instruction[5], out=writeA);
+	And(a=instruction[15], b=instruction[4], out=writeD);
+	And(a=instruction[15], b=instruction[3], out=writeM);
+
+	// Internal registers
+	Mux16(a=alu, b=instruction, sel=ain, out=amux);
+	ARegister(in=amux, load=writeA, out=A, out[0..14]=addressM);
+	DRegister(in=alu, load=writeD, out=D);
+
+	// ALU operations
+	Mux16(a=A, b=inM, sel=instruction[12], out=opA);
+	ALU(x=D, y=opA, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=alu, out=outM, zr=zr, ng=ng);
+
+
+	// Jump instructions
+	Not(in=zr, out=nz);
+	Not(in=ng, out=nn);
+	And(a=nz, b=nn, out=pos);
+	And(a=instruction[0], b=instruction[2], out=LG);
+
+	And(a=pos, b=instruction[0], out=G);
+	And(a=zr, b=instruction[1], out=E);
+	And(a=ng, b=instruction[2], out=L);
+	And(a=LG, b=nz, out=NE);
+
+	Or8Way(in[0]=G, in[1]=E, in[2]=L, in[3]=NE, out=jmp);
+	And(a=jmp, b=instruction[15], out=pcl);
+	Not(in=pcl, out=inc);
+
+	// Instruction program counter
+	PC(in=A, load=pcl, inc=inc, reset=reset, out[0..14]=pc);
 }
