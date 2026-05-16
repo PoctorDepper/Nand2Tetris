@@ -17,122 +17,348 @@ constexpr unsigned short ZERO_Y = 0b0000001000000000;
 constexpr unsigned short NEGATE_X = 0b0000010000000000;
 constexpr unsigned short ZERO_X = 0b0000100000000000;
 constexpr unsigned short SWAP_Y = 0b0001000000000000;
-constexpr unsigned short C_INSTRUCTION = 0b1110000000000000;
+constexpr unsigned short C_INSTRUCTION = 0b1110000000000000;    // We also use this as an error code
 constexpr unsigned short A_INSTRUCTION_MASK = 0b0111111111111111;
-constexpr std::string C_INSTRUCTION_LEADING_CHARS = "ADM-!10";
+constexpr std::string OPERATIONS = "-+!&|";
+constexpr std::string OPERANDS = "01ADM";
+constexpr std::string LOCATIONS = "ADM";
 
-void addPredefinedSymbols(std::unordered_map<std::string, unsigned short>& symbolTable)
+
+// A split C instruction for computation
+struct Instruction
 {
+	std::string assignment;
+	char operation = '\0';
+	std::string operands;
+	std::string jump;
+};
+
+// Start a symbol table with the predefined symbols of the Hack assembler language
+std::unordered_map<std::string, unsigned short> get_symbol_table()
+{
+	std::unordered_map<std::string, unsigned short> table;
+
     for (int i = 0; i < 16; i++)
     {
-        symbolTable["R" + std::to_string(i)] = i;
+        table["R" + std::to_string(i)] = i;
     }
 
-    symbolTable["SCREEN"] = 16364;
-    symbolTable["KBD"] = 24576;
-    symbolTable["SP"] = 0;
-    symbolTable["LCL"] = 1;
-    symbolTable["ARG"] = 2;
-    symbolTable["THIS"] = 3;
-    symbolTable["THAT"] = 4;
+    table["SCREEN"] = 16364;
+    table["KBD"] = 24576;
+    table["SP"] = 0;
+    table["LCL"] = 1;
+    table["ARG"] = 2;
+    table["THIS"] = 3;
+    table["THAT"] = 4;
+
+	return table;
 }
 
-// C_INSTRUCTION is our "error" so to speak
-unsigned short cComp(const char operation, const char leftOperand, const char rightOperand)
+// Splits the line of assembler into an instruction
+Instruction parse_instruction(std::string line)
 {
-    unsigned short compVal = 0;
+    Instruction out;
+    std::size_t assign = line.find('=');
+    std::size_t jump = line.find(';');
+    std::size_t operationStart = 0;
+    std::size_t operationEnd = line.length();
 
-    switch (operation)
+    // If we found the assignment operator, set the assignment destination and move the operation start point
+    if (assign != std::string::npos)
+    { 
+        out.assignment = line.substr(0, assign);
+        operationStart = assign + 1;
+    }
+
+    // If we found a jump instruction, set the jump instruction and move the operation end point
+    if (jump != std::string::npos)
     {
-    case '-':
-        compVal |= FUNCTION;
-        if (rightOperand != '1') compVal |= NEGATE_OUTPUT;
+        out.jump = line.substr(jump + 1);
+        operationEnd = jump;
+    }
 
-        if (leftOperand == '0')
-        {
-            if (rightOperand == 'D') compVal |= NEGATE_Y | ZERO_Y;
-            else if (rightOperand == 'A' || rightOperand == 'M') compVal |= NEGATE_X | ZERO_X;
-            else if (rightOperand == '1') compVal |= NEGATE_X | ZERO_X | ZERO_Y;
-            else return C_INSTRUCTION;
-        }
+    // Grab the operation substring
+    std::string operation = line.substr(operationStart, operationEnd);
 
-        else if (leftOperand == 'D')
-        {
-            if (rightOperand == 'A' || rightOperand == 'M') compVal |= NEGATE_X;
-            else if (rightOperand == '1') compVal |= NEGATE_Y | ZERO_Y;
-            else return C_INSTRUCTION;
-        }
+    // Grab the operation (or nothing in the case of 1 and 0, this is by design) and remove it
+    for (char c : OPERATIONS)
+    {
+        std::size_t op = operation.find(c);
+        if (op == std::string::npos) continue;
 
-        else if (leftOperand == 'A' || leftOperand == 'M')
-        {
-            if (rightOperand == 'D') compVal |= NEGATE_Y;
-            else if (rightOperand == '1') compVal |= NEGATE_X | ZERO_X;
-            else return C_INSTRUCTION;
-        }
+        out.operation = operation[op];
+        operation.erase(op, 1);
 
-        else return C_INSTRUCTION;
-
+        // We break out of the for loop here, as we error for multiple operators later
         break;
+    }
+
+    // Then the leftover *should* be the operands (we handle this later)
+    out.operands = operation;
+
+    return out;
+}
+
+// Return the value needed for proper assignment or C_INSTRUCTION in error
+unsigned short evaluate_assignment(Instruction instruction)
+{
+    unsigned short assignment;
+
+    for (char c : instruction.assignment)
+    {
+        switch (c)
+        {
+        case 'A':
+            assignment |= STORE_ADDRESS;
+            break;
+        case 'D':
+            assignment |= STORE_DATA;
+            break;
+        case 'M':
+            assignment |= STORE_MEMORY;
+            break;
+        default:
+            return C_INSTRUCTION;
+        }
+    }    
+
+    return assignment;
+}
+
+// Return the jump instruction or C_INSTRUCTION in error
+unsigned short evaluate_jump(Instruction instruction)
+{
+    unsigned short jump;
+
+    if (instruction.jump.empty()) return 0;
+    if (instruction.jump[0] != 'J') return C_INSTRUCTION;
+    
+    if (instruction.jump == "JNE") jump |= JUMP_LESS | JUMP_GREATER;
+    else if (instruction.jump == "JMP") jump |= JUMP_GREATER | JUMP_LESS | JUMP_EQUAL;
+    else
+    {
+        if (instruction.jump.contains('G')) jump |= JUMP_GREATER;
+        if (instruction.jump.contains('L')) jump |= JUMP_LESS;
+        if (instruction.jump.contains('E')) jump |= JUMP_EQUAL;
+    }
+
+    return jump;
+}
+
+// Return the needed instructions given the operator and operand(s) or C_INSTRUCTION in error
+unsigned short evaluate_computation(Instruction instruction)
+{
+    // Do we have too many operands or no operands?
+    if (instruction.operands.length() > 2 || instruction.operands.length() < 1) return C_INSTRUCTION;
+
+    unsigned short computation;
+
+    // SWAP-Y check, also errors if A is present
+    if (instruction.operands.contains('M'))
+    {
+        if (instruction.operands.contains('A')) return C_INSTRUCTION;
+        computation |= SWAP_Y;
+    }
+
+    // Decide what we do base on the function operators (!,-,+,&,|)
+    switch (instruction.operation)
+    {
+    // 3 total options, two of which are x+1
     case '+':
-        compVal |= FUNCTION;
+        if (instruction.operands.length() < 2) return C_INSTRUCTION;
 
-        if (leftOperand == '0')
+        switch (instruction.operands[1])
         {
-            if (rightOperand == '0') compVal |= ZERO_X | ZERO_Y;
-            else if (rightOperand == '1') compVal |= ZERO_X | ZERO_Y | NEGATE_X | NEGATE_Y | NEGATE_OUTPUT;
-            else return C_INSTRUCTION;
+            case '1':
+                switch (instruction.operands[0])
+                {
+                    // D+1
+                    case 'D':
+                        computation |= ZERO_Y;
+                        break;
+                    
+                    // A/M+1
+                    case 'A':
+                    case 'M':
+                        computation |= ZERO_X;
+                        break;
+                    
+                    default:
+                        return C_INSTRUCTION;
+                }
+
+                computation |= NEGATE_X | NEGATE_Y | NEGATE_OUTPUT;
+                break;
+
+            // D+A/M, otherwise it's wrong
+            case 'A':
+            case 'M':
+                if (instruction.operands[0] != 'D') return C_INSTRUCTION;
+                // Since we're just adding, we do nothing here
+                break;
+
+            default:
+                return C_INSTRUCTION;
         }
 
-        else if (leftOperand == 'D')
-        {
-            if (rightOperand == 'A' || rightOperand == 'M')
-            {
-            }
-            else if (rightOperand == '1') compVal |= NEGATE_X | NEGATE_Y | ZERO_Y | NEGATE_OUTPUT;
-            else return C_INSTRUCTION;
-        }
-
-        else if (leftOperand == 'A' || leftOperand == 'M')
-        {
-            if (rightOperand == 'D')
-            {
-            }
-            else if (rightOperand == '1') compVal |= NEGATE_X | NEGATE_Y | ZERO_X | NEGATE_OUTPUT;
-            else return C_INSTRUCTION;
-        }
-
-        else return C_INSTRUCTION;
-
+        computation |= FUNCTION;
         break;
-    // The ! operator is just an AND 1 with negated output, so a quick check and a fallthrough here
+
+    // Probably the most "complex" instruction, as there are a lot of different options
+    case '-':
+        // Extending single negative operations for ease of patterning
+        if (instruction.operands.length() < 2) instruction.operands = '\0' + instruction.operands;
+
+        // Checking the last operand here
+        switch (instruction.operands[1])
+        {
+            // x-D
+            case 'D':
+                switch (instruction.operands[0])
+                {
+                    // -D
+                    case '\0':
+                        computation |= ZERO_Y;
+                    // A/M-D
+                    case 'A':
+                    case 'M':
+                        computation |= NEGATE_Y;
+                        break;
+
+                    default:
+                        return C_INSTRUCTION;
+                }
+
+                computation |= FUNCTION | NEGATE_OUTPUT;
+                break;
+            
+            // x-A/M
+            case 'A':
+            case 'M':
+                switch (instruction.operands[0])
+                {
+                    // -A/M
+                    case '\0':
+                        computation |= ZERO_X;
+                    // D-A/M
+                    case 'D':
+                        computation |= NEGATE_X;
+                        break;
+
+                    default:
+                        return C_INSTRUCTION;
+                }
+
+                computation |= FUNCTION | NEGATE_OUTPUT;
+                break;
+            
+            // x-1
+            case '1':
+                switch (instruction.operands[0])
+                {
+                    // -1
+                    case '\0':
+                        computation |= ZERO_X | ZERO_Y | NEGATE_X;
+                        break;
+
+                    // D-1
+                    case 'D':
+                        computation |= ZERO_Y | NEGATE_Y;
+                        break;
+
+                    // A/M-1
+                    case 'A':
+                    case 'M':
+                        computation |= ZERO_X | NEGATE_X;
+                        break;
+
+                    default:
+                        return C_INSTRUCTION;
+                }
+                break;
+
+            default:
+                return C_INSTRUCTION;
+        }
+
+        computation |= FUNCTION;
+        break;
+
+    // The NOT operation is AND -1 with negated output
     case '!':
-        if (leftOperand != '0') return C_INSTRUCTION;
-        compVal |= NEGATE_OUTPUT;
-    case '&':
-        // Will return failed value if left is equal to 'D' and right is not equal to 'A' or 'M'
-        // "Fallthrough" is a compVal of 0, which is D&A or D&M
-        if (leftOperand == 'D' && rightOperand != 'A' && rightOperand != 'M') return C_INSTRUCTION;
-        if (leftOperand == '0')
+        if (instruction.operands.length() > 1) return C_INSTRUCTION;
+        switch (instruction.operands[0])
         {
-            if (rightOperand == 'D') compVal |= ZERO_Y | NEGATE_Y;
-            else if (rightOperand == 'A' || rightOperand == 'M') compVal |= ZERO_X | NEGATE_X;
-            else return C_INSTRUCTION;
+            // Make the right operand -1
+            case 'D':
+                computation |= ZERO_Y | NEGATE_Y;
+                break;
+            
+            // Make the left operand -1
+            case 'A':
+            case 'M':
+                computation |= ZERO_X | NEGATE_X;
+                break;
+            
+            default:
+                return C_INSTRUCTION;
+        }
+
+        computation |= NEGATE_OUTPUT;
+        break;
+    
+    // OR is just AND with negated everything (DeMorgan's)
+    case '|':
+        computation |= NEGATE_X | NEGATE_Y | NEGATE_OUTPUT;
+    // The only AND operation requires two operands, and must start with D followed by an A or M
+    case '&':
+        if (instruction.operands.length() < 2 || instruction.operands[0] != 'D') return C_INSTRUCTION;
+        if (instruction.operands[1] != 'A' && instruction.operands[1] != 'M') return C_INSTRUCTION;
+        // An AND operations is all 0's, so do nothing
+        break;
+
+    // This case only happens with single operands, under any other case this is a failure
+    case '\0':
+        if (instruction.operands.length() > 1) return C_INSTRUCTION;
+        switch(instruction.operands[0])
+        {
+            // D & 1
+            case 'D':
+                computation |= ZERO_Y | NEGATE_Y;
+                break;
+            
+            // A and M are the same process
+            // 1 & A/M
+            case 'A':           
+            case 'M':
+                computation |= ZERO_X | NEGATE_X;
+                break;
+            
+            // 1 and 0 declaration have similar outputs, so fallthrough
+            // -(-1+-1) i.e. two's complement
+            case '1':
+                computation |= NEGATE_X | NEGATE_Y | NEGATE_OUTPUT;
+            // 0 + 0   
+            case '0':
+                computation |= ZERO_X | ZERO_Y | FUNCTION;
+                break;
+
+            default:
+                return C_INSTRUCTION;
         }
         break;
-    case '|':
-        if (leftOperand != 'D' || (rightOperand != 'A' && rightOperand != 'M')) return C_INSTRUCTION;
-        compVal |= NEGATE_X | NEGATE_Y | NEGATE_OUTPUT;
-        break;
+
+    // If the operand isn't any of the listed, that's a problem ( shouldn't be possible, but better to be safe)
     default:
         return C_INSTRUCTION;
     }
 
-    return compVal;
+    return computation;
 }
 
 int main(const int argc, const char* argv[])
 {
-    // Check for argument
+    // Check for file argument
     if (argc <= 1)
     {
         std::cerr << "You must pass a file as an argument." << std::endl;
@@ -141,13 +367,13 @@ int main(const int argc, const char* argv[])
 
     // Check file ending (yes, I know this isn't the most secure, but oh well)
     std::string fileName = argv[1];
-    if (fileName.substr(fileName.find('.')) != ".asm")
+    if (fileName.substr(fileName.find_last_of('.')) != ".asm")
     {
         std::cerr << "\"" << fileName << "\" is not an assembly file." << std::endl;
         return EXIT_FAILURE;
     }
 
-    // Read the file (storing in variable, so I don't keep the file open for too long)
+    // Read the file and store so the file isn't kept open during processing
     std::ifstream assemblyFile(fileName, std::ios::in);
     if (!assemblyFile.is_open())
     {
@@ -155,20 +381,17 @@ int main(const int argc, const char* argv[])
         return EXIT_FAILURE;
     }
 
+    // Read all lines from the file, stripping spaces
     std::vector<std::string> assemblyLines;
-
     for (std::string line; std::getline(assemblyFile, line);)
     {
-        // Strip all spaces from the line
         std::erase_if(line, [](const unsigned char x) { return std::isspace(x); });
         assemblyLines.push_back(line);
     }
-
     assemblyFile.close();
 
     // Symbol pass
-    std::unordered_map<std::string, unsigned short> symbolTable;
-    addPredefinedSymbols(symbolTable);
+    std::unordered_map<std::string, unsigned short> symbolTable = get_symbol_table();
     // TODO Make the symbol pass
 
     // Computation pass
@@ -176,146 +399,106 @@ int main(const int argc, const char* argv[])
     for (unsigned int i = 0, lineCount = assemblyLines.size(); i < lineCount; ++i)
     {
         const std::string& line = assemblyLines[i];
-        if (!(C_INSTRUCTION_LEADING_CHARS.contains(line[0]) || line[0] == '@'))
+        if (line.empty()) continue;
+
+        unsigned short outBinary;
+        
+        switch (line[0])
         {
-            // If it's not a comment, break out of main
-            if (line.substr(0, 2) != "//" && !line.empty())
-            {
-                std::cerr << "Invalid instruction at line " << i + 1 << "." << std::endl;
-                return EXIT_FAILURE;
-            }
-            continue;
-        }
-        unsigned short instruction;
+            // Skip over tokens and comments
+            case '(':
+            case '/':
+                continue;
 
-        // A-Instruction block
-        // This will use bitwise AND, as we are ensuring the most significant bit is 0 with the mask
-        if (line[0] == '@')
-        {
-            std::string aString = line.substr(1);
-            unsigned short aValue;
-            instruction = A_INSTRUCTION_MASK;
-
-            if (symbolTable.contains(aString)) aValue = symbolTable[aString];
-            else
-            {
-                try
+            // A-Instruction block
+            // This will use bitwise AND, as we are ensuring the most significant bit is 0 with the mask
+            case '@':
                 {
-                    int val = std::stoi(line.substr(1));
-                    // Abusing that this needs to be in a try-catch by throwing an exception prior to assignment
-                    if (unsigned short limit = -1; val > limit) throw std::exception();
-                    aValue = val;
-                }
-                // Will not be using that exception for anything
-                catch (std::exception&)
+                std::string destination = line.substr(1);
+                unsigned short value;
+                outBinary = A_INSTRUCTION_MASK;
+
+                if (symbolTable.contains(destination)) value = symbolTable[destination];
+                
+                else
                 {
-                    std::cerr << "Invalid token or value at line " << i + 1 << "." << std::endl;
-                    return EXIT_FAILURE;
-                }
-            }
-
-            instruction &= aValue;
-        }
-
-        // C-Instruction block
-        // This will use bitwise OR because it's adding to the base C_INSTRUCTION
-        else
-        {
-            instruction = C_INSTRUCTION;
-            // The index in the string to read from, gets modified in the .contains('=') check
-            unsigned int instructionIndex = 0;
-
-            // Destination
-            if (line.contains('='))
-            {
-                instructionIndex = line.find('=') + 1;
-                for (std::string assignment = line.substr(0, instructionIndex - 1); char c : assignment)
-                {
-                    switch (c)
+                    try
                     {
-                    case 'A':
-                        instruction |= STORE_ADDRESS;
-                        break;
-                    case 'D':
-                        instruction |= STORE_DATA;
-                        break;
-                    case 'M':
-                        instruction |= STORE_MEMORY;
-                        break;
-                    default:
-                        std::cerr << "Invalid assignment to \"" << c << "\" line " << i + 1 << "." << std::endl;
+                        int eval = std::stoi(line.substr(1));
+                        // If the integer parse is greater than 32K address or negative, that's a problem
+                        if (eval < 0 || eval > 0x7FFF) throw std::exception();
+                        value = eval;
+                    }
+                    // Will not be using that exception for anything
+                    catch (std::exception&)
+                    {
+                        std::cerr << "Invalid token or value at line " << i + 1 << "." << std::endl;
                         return EXIT_FAILURE;
                     }
                 }
-            }
 
-            // Check for SWAP_Y requirement
-            unsigned long semicolon = line.contains(';') ? line.find(';') : line.length();
-            std::string comp = line.substr(instructionIndex, semicolon);
-            if (comp.contains('M'))
-            {
-                if (comp.contains('A'))
+                outBinary &= value;
+                }
+                break;
+
+            // C-Instruction block
+            // This will use bitwise OR because it's adding to the base C_INSTRUCTION
+            case '0':
+            case '1':
+            case 'A':
+            case 'D':
+            case 'M':
+            case '!':
+            case '-':
                 {
-                    std::cerr << "Invalid computation at line " << i + 1 << "." << std::endl;
+                outBinary = C_INSTRUCTION;
+                // Fills an instruction struct with data from the line, then computes each part of the instruction
+                Instruction compInstruction = parse_instruction(line);
+
+                // Assignment
+                unsigned short evaluation = evaluate_assignment(compInstruction);
+                if (evaluation == C_INSTRUCTION) 
+                {
+                    std::cerr << "Invalid assignment at line " << i + 1 << "." << std::endl;
                     return EXIT_FAILURE;
                 }
-                instruction |= SWAP_Y;
-            }
+                outBinary |= evaluation;
 
-
-            // Computation
-            unsigned short compLength = comp.length();
-
-            if (compLength > 3)
-            {
-                std::cerr << "Invalid computation at line " << i + 1 << "." << std::endl;
-                return EXIT_FAILURE;
-            }
-
-            char op = compLength > 1 ? comp.at(compLength - 2) : comp.at(0) == '0' || comp.at(0) == '1' ? '+' : '&';
-            char left = compLength > 2 ? comp.at(0) : '0';
-            char right = comp.at(compLength - 1);
-
-            unsigned short compValue = cComp(op, left, right);
-
-            // Using the 3 most significant bits as error checking
-            if ((compValue & C_INSTRUCTION) != 0)
-            {
-                std::cerr << "Invalid computation at line " << i + 1 << "." << std::endl;
-                return EXIT_FAILURE;
-            }
-
-            instruction |= compValue;
-
-            // Check if a semicolon exists, and read the jump
-            if (semicolon != line.length())
-            {
-                std::string jump = line.substr(semicolon + 1);
-
-                if (jump[0] != 'J')
+                // Jump
+                evaluation = evaluate_jump(compInstruction);
+                if (evaluation == C_INSTRUCTION) 
                 {
                     std::cerr << "Invalid jump at line " << i + 1 << "." << std::endl;
                     return EXIT_FAILURE;
                 }
+                outBinary |= evaluation;
 
-                if (jump == "JNE") instruction |= JUMP_LESS | JUMP_GREATER;
-                else if (jump == "JMP") instruction |= JUMP_GREATER | JUMP_LESS | JUMP_EQUAL;
-                else
+                // Computation
+                evaluation = evaluate_computation(compInstruction);
+                if (evaluation == C_INSTRUCTION) 
                 {
-                    if (jump.contains('G')) instruction |= JUMP_GREATER;
-                    if (jump.contains('L')) instruction |= JUMP_LESS;
-                    if (jump.contains('E')) instruction |= JUMP_EQUAL;
+                    std::cerr << "Invalid computation at line " << i + 1 << "." << std::endl;
+                    return EXIT_FAILURE;
                 }
-            }
+                outBinary |= evaluation;
+
+                }
+                break;
+
+            default:
+                std::cerr << "Invalid instruction at line " << i + 1 << "." << std::endl;
+                return EXIT_FAILURE;
+            break;
+
         }
 
         // Add the instruction to the binary lines
-        binaryLines.push_back(instruction);
+        binaryLines.push_back(outBinary);
     }
 
 
     // Write to .hack file
-    fileName = fileName.substr(0, fileName.find('.')) + ".hack";
+    fileName = fileName.substr(0, fileName.find_last_of('.')) + ".hack";
     std::ofstream binaryFile(fileName, std::ios::out);
     if (!binaryFile.is_open())
     {
