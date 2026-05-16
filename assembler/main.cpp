@@ -43,7 +43,7 @@ std::unordered_map<std::string, unsigned short> get_symbol_table()
         table["R" + std::to_string(i)] = i;
     }
 
-    table["SCREEN"] = 16364;
+    table["SCREEN"] = 16384;
     table["KBD"] = 24576;
     table["SP"] = 0;
     table["LCL"] = 1;
@@ -390,13 +390,40 @@ int main(const int argc, const char* argv[])
     }
     assemblyFile.close();
 
-    // Symbol pass
+    // Symbol pass, requires a dual pass I believe
     std::unordered_map<std::string, unsigned short> symbolTable = get_symbol_table();
-    // TODO Make the symbol pass
+    for (short i = 0, lineCount = assemblyLines.size(), assemblyCount = 0; i < lineCount; ++i)
+    {
+        std::string line = assemblyLines[i];
+
+        // If the line is empty, skip
+        if (line.empty() || line[0] == '/') continue;
+
+        // If it's an A instruction or C instruction, skip
+        if (line[0] == '@' || OPERANDS.contains(line[0]) || OPERATIONS.contains(line[0])) 
+        {
+            ++assemblyCount;
+            continue;
+        }
+
+        // Remove the first and last element of the line "()"
+        line = line.substr(1, line.length() - 2);
+
+        // If the token is already in the table, throw an error
+        if (symbolTable.contains(line))
+        {
+            std::cerr << "Token assigned more than once at line " << i + 1 << "." << std::endl;
+            return EXIT_FAILURE;   
+        }
+
+        symbolTable[line] = assemblyCount;
+    }
 
     // Computation pass
     std::vector<unsigned short> binaryLines;
-    for (unsigned int i = 0, lineCount = assemblyLines.size(); i < lineCount; ++i)
+    // Starts after the R registers
+    short variableCount = 16;
+    for (short i = 0, lineCount = assemblyLines.size(); i < lineCount; ++i)
     {
         const std::string& line = assemblyLines[i];
         if (line.empty()) continue;
@@ -415,7 +442,7 @@ int main(const int argc, const char* argv[])
             case '@':
                 {
                 std::string destination = line.substr(1);
-                unsigned short value;
+                short value;
                 outBinary = A_INSTRUCTION_MASK;
 
                 if (symbolTable.contains(destination)) value = symbolTable[destination];
@@ -424,16 +451,22 @@ int main(const int argc, const char* argv[])
                 {
                     try
                     {
-                        int eval = std::stoi(line.substr(1));
+                        int eval = std::stoi(destination);
+
                         // If the integer parse is greater than 32K address or negative, that's a problem
-                        if (eval < 0 || eval > 0x7FFF) throw std::exception();
+                        if (eval < 0 || eval > 0x7FFF) 
+                        {
+                            std::cerr << "Invalid value at line " << i + 1 << "." << std::endl;
+                            return EXIT_FAILURE;
+                        }
+
                         value = eval;
                     }
                     // Will not be using that exception for anything
                     catch (std::exception&)
                     {
-                        std::cerr << "Invalid token or value at line " << i + 1 << "." << std::endl;
-                        return EXIT_FAILURE;
+                        value = variableCount++;
+                        symbolTable[destination] = value;
                     }
                 }
 
