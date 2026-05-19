@@ -61,7 +61,7 @@ Instruction parse_instruction(std::string line)
     std::size_t assign = line.find('=');
     std::size_t jump = line.find(';');
     std::size_t operationStart = 0;
-    std::size_t operationEnd = line.length();
+    std::size_t operationEnd = line.find("//");
 
     // If we found the assignment operator, set the assignment destination and move the operation start point
     if (assign != std::string::npos)
@@ -73,7 +73,7 @@ Instruction parse_instruction(std::string line)
     // If we found a jump instruction, set the jump instruction and move the operation end point
     if (jump != std::string::npos)
     {
-        out.jump = line.substr(jump + 1);
+        out.jump = line.substr(jump + 1, operationEnd);
         operationEnd = jump;
     }
 
