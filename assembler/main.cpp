@@ -163,7 +163,7 @@ unsigned short evaluate_computation(Instruction instruction)
     // Decide what we do base on the function operators (!,-,+,&,|)
     switch (instruction.operation)
     {
-    // 3 total options, two of which are x+1
+    // 4 total options, two of which are x+1
     case '+':
         if (instruction.operands.length() < 2) return C_INSTRUCTION;
 
@@ -189,8 +189,14 @@ unsigned short evaluate_computation(Instruction instruction)
 
                 computation |= NEGATE_X | NEGATE_Y | NEGATE_OUTPUT;
                 break;
+                
+            // A/M+D
+            case 'D':
+                if (instruction.operands[0] != 'A' && instruction.operands[0] != 'M') return C_INSTRUCTION;
+                // Since we're just adding, we do nothing here
+                break;
 
-            // D+A/M, otherwise it's wrong
+            // D+A/M
             case 'A':
             case 'M':
                 if (instruction.operands[0] != 'D') return C_INSTRUCTION;
