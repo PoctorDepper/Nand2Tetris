@@ -281,6 +281,7 @@ int main(const int argc, char* argv[])
                         continue;
                 add_line(assembly, line_ptr);
         }
+        fclose(in);
         // TODO Symbol pass
         symbol_table* table = initialize_table();
         for (short i = 0, assembly_i = 0; i < assembly->length; ++i) {
