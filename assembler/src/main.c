@@ -271,9 +271,9 @@ int main(const int argc, char* argv[])
         }
         // Read all lines of the file into a buffer
         file_lines* assembly = new_file_lines();
-        while (!feof(in)) {
-                char line[255];
-                const char* line_ptr = fgets(line, 255, in);
+        char line_in[256];
+        while (fgets(line_in, 256, in)) {
+                const char* line_ptr = line_in;
                 // Ignore all indentation
                 while (isspace(*line_ptr))
                         line_ptr++;
