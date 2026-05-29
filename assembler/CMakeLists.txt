@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
-project(HackAssembler)
+project(assembler C)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD 11)
 
-add_executable(HackAssembler main.cpp)
+include_directories(include/)
+
+add_executable(assembler
+        src/main.c
+        src/symbol_table.c
+        src/file_lines.c
+)
