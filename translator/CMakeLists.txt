@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.28)
-project(HackVMTranslator)
+project(translator C)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD 11)
 
-add_executable(HackVMTranslator main.cpp)
+include_directories(include/)
+
+add_executable(translator
+        src/main.c
+        src/file_lines.c
+)

@@ -1,11 +1,9 @@
-// push constant 10
 @10
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// pop local 0
 @0
 D=A
 @LCL
@@ -16,21 +14,18 @@ M=D+M
 D=M-D
 A=M-D
 M=D
-// push constant 21
 @21
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// push constant 22
 @22
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// pop argument 2
 @2
 D=A
 @ARG
@@ -41,7 +36,6 @@ M=D+M
 D=M-D
 A=M-D
 M=D
-// pop argument 1
 @1
 D=A
 @ARG
@@ -52,14 +46,12 @@ M=D+M
 D=M-D
 A=M-D
 M=D
-// push constant 36
 @36
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// pop this 6
 @6
 D=A
 @THIS
@@ -70,21 +62,18 @@ M=D+M
 D=M-D
 A=M-D
 M=D
-// push constant 42
 @42
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// push constant 45
 @45
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// pop that 5
 @5
 D=A
 @THAT
@@ -95,7 +84,6 @@ M=D+M
 D=M-D
 A=M-D
 M=D
-// pop that 2
 @2
 D=A
 @THAT
@@ -106,20 +94,17 @@ M=D+M
 D=M-D
 A=M-D
 M=D
-// push constant 510
 @510
 D=A
 @SP
 AM=M+1
 A=A-1
 M=D
-// pop temp 6
 @SP
 AM=M-1
 D=M
 @11
 M=D
-// push local 0
 @0
 D=A
 @LCL
@@ -129,7 +114,6 @@ D=M
 AM=M+1
 A=A-1
 M=D
-// push that 5
 @5
 D=A
 @THAT
@@ -139,13 +123,11 @@ D=M
 AM=M+1
 A=A-1
 M=D
-// x+y
 @SP
 AM=M-1
 D=M
 A=A-1
 MD=M+D
-// push argument 1
 @1
 D=A
 @ARG
@@ -155,13 +137,11 @@ D=M
 AM=M+1
 A=A-1
 M=D
-// x-y
 @SP
 AM=M-1
 D=M
 A=A-1
 MD=M-D
-// push this 6
 @6
 D=A
 @THIS
@@ -171,7 +151,6 @@ D=M
 AM=M+1
 A=A-1
 M=D
-// push this 6
 @6
 D=A
 @THIS
@@ -181,26 +160,22 @@ D=M
 AM=M+1
 A=A-1
 M=D
-// x+y
 @SP
 AM=M-1
 D=M
 A=A-1
 MD=M+D
-// x-y
 @SP
 AM=M-1
 D=M
 A=A-1
 MD=M-D
-// push temp 6
 @11
 D=M
 @SP
 AM=M+1
 A=A-1
 M=D
-// x+y
 @SP
 AM=M-1
 D=M
